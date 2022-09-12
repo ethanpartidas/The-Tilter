@@ -1,119 +1,109 @@
-import numpy
-from PIL import ImageGrab, ImageShow, Image
 import math
-import serial
 import time
-import cv2
 
-time.sleep(3)
-# ImageGrab.grab().save("Screenie.png")
-smallX = 70
-smallY = 280
-bigX = smallX + 490
-bigY = smallY + 490
-K_p = 0.5
-K_d = 0.6
-K_i = 0.5
-forceSmoothing = 0.5
-# im.show()
-# im.save("Screenie.png")
+import serial
+from PIL import ImageGrab
 
-def drawBoundBox():
+# Video feed position
+small_x = 70
+small_y = 280
+big_x = small_x + 490
+big_y = small_y + 490
+
+# Coefficients
+K_p = 0.5  # Position
+K_d = 0.6  # Derivative
+K_i = 0.5  # Integral
+force_smoothing = 0.5  # Helps reduce jitter
+
+
+# noinspection PyShadowingNames
+def drawBoundBox():  # For *testing*
     testImg = ImageGrab.grab()
     pixels = testImg.load()
 
-    for y in range(smallY, bigY):
-        for x in range(smallX, bigX):
-            # if pixels[x, y][2] >= 230:
+    for y in range(small_y, big_y):
+        for x in range(small_x, big_x):
+            # noinspection PyUnresolvedReferences
             pixels[x, y] = (0, 255, 0)
 
     testImg.show()
 
 
-# drawBoundBox()
-
 def clamp(num, min_value, max_value):
-   return max(min(num, max_value), min_value)
+    return max(min(num, max_value), min_value)
 
-def main():
-    lastX, lastY, lastTime = 0, 0, time.time()
-    intX, intY = 0, 0
-    lastFx, lastFy = 0, 0
-    while True:
-        im = ImageGrab.grab()
-        # width, height = im.size
-        px = im.load()
-        # px[x, y] = (0, 255, 0)
 
-        xsum, ysum, total = 0, 0, 0
-
-        for y in range(smallY, bigY):
-            for x in range(smallX, bigX):
-                if px[x, y][2] >= 230:
-                    xsum += x
-                    ysum += y
-                    total += 1
-
-        if total <= 10:
-            continue
-
-        xrange, yrange = bigX - smallX, bigY - smallY
-        avgX, avgY = xsum / total, ysum / total
-        normalX, normalY = (avgX - smallX) / xrange, (avgY - smallY) / yrange
-        coordX, coordY, current_time = 2*normalX - 1, -2*normalY + 1, time.time()
-
-        # targetX, targetY = math.cos(4*time.time())/5, math.sin(4*time.time())/5
-        # targetX, targetY = math.cos(time.time())/10, 0
-        targetX, targetY = 0, 0
-        errorX, errorY = targetX - coordX, targetY - coordY
-        dt = current_time - lastTime
-        dX, dY = (errorX - lastX)/dt, (errorY - lastY)/dt
-        lastX, lastY, lastTime = errorX, errorY, current_time
-        intX += errorX * dt
-        intY += errorY * dt
-        intX = clamp(intX, -1, 1)
-        intY = clamp(intY, -1, 1)
-        # speed = 2
-        # if dX * dX + dY * dY > speed * speed:
-        #     intX = 0
-        #     intY = 0
-        #     print('reset integral')
-        forceX = (K_p * errorX + K_d * dX + K_i * intX) * (1-forceSmoothing) + lastFx * forceSmoothing
-        lastFx = forceX
-        forceY = (K_p * errorY + K_d * dY + K_i * intY) * (1-forceSmoothing) + lastFy * forceSmoothing
-        lastFy = forceY
-
-        print(f"Proportional: {errorX:.3f}, {errorY:.3f}", end='\t')
-        print(f"Derivative: {dX:.3f}, {dY:.3f}", end='\t')
-        print(f"Integral: {intX:.3f}, {intY:.3f}", end=' \t')
-        print(f"Force: {forceX:.3f}, {forceY:.3f}")
-        setforce(forceX, forceY)
-
-        # numpy_img = numpy.array(im.getdata(), dtype='uint8').reshape(im.size[1], im.size[0], 3)
-        # cv_im = cv2.resize(numpy_img, (300, 300))
-        # cv2.imshow("Display", cv_im)
-
-        # time.sleep(0.05)
-
+# Serial connection
 ser = serial.Serial()
 ser.baudrate = 115200
 ser.port = 'COM3'
 ser.open()
 
-# max_angle = 90
 
-def setmotor(index, angle):
-    # angle = clamp(angle, 0, max_angle)
-    ser.write(bytes(str(chr(ord('a')+index)), 'ascii') + bytes(str(angle//100), 'ascii') + bytes(str(angle//10%10), 'ascii') + bytes(str(angle%10), 'ascii'))
+def set_motor(index, angle):
+    ser.write(
+        bytes(str(chr(ord('a') + index)), 'ascii') + bytes(str(angle // 100), 'ascii') + bytes(str(angle // 10 % 10),
+                                                                                               'ascii') + bytes(
+            str(angle % 10), 'ascii'))
 
-def setforce(x, y):
+
+# noinspection PyShadowingNames
+def set_force(x, y):
     x = clamp(x, -1, 1)
     y = clamp(y, -1, 1)
-    setmotor(0, int(180 / math.pi * math.asin((-y+1)/2)))
-    setmotor(1, int(180 / math.pi * math.asin((clamp((math.sqrt(3)/2 * -x + 1/2 * y), -1, 1)+1)/2)))
-    setmotor(2, int(180 / math.pi * math.asin((clamp((math.sqrt(3)/2 * x + 1/2 * y), -1, 1)+1)/2)))
-    # setmotor(0, int(max_angle * (-y+1)/2))
-    # setmotor(1, int(max_angle * (clamp((math.sqrt(3)/2 * -x + 1/2 * y), -1, 1)+1)/2))
-    # setmotor(2, int(max_angle * (clamp((math.sqrt(3)/2 * x + 1/2 * y), -1, 1)+1)/2))
 
-main()
+    set_motor(0, int(180 / math.pi * math.asin((-y + 1) / 2)))
+    set_motor(1, int(180 / math.pi * math.asin((clamp((math.sqrt(3) / 2 * -x + 1 / 2 * y), -1, 1) + 1) / 2)))
+    set_motor(2, int(180 / math.pi * math.asin((clamp((math.sqrt(3) / 2 * x + 1 / 2 * y), -1, 1) + 1) / 2)))
+
+
+if __name__ == "__main__":
+    time.sleep(3)
+
+    last_x = last_y = 0
+    lastTime = time.time()
+
+    int_x = int_y = 0
+    last_force_x = last_force_y = 0
+    while True:
+        im = ImageGrab.grab()
+        px = im.load()
+
+        x_sum = y_sum = total = 0
+        for y in range(small_y, big_y):
+            for x in range(small_x, big_x):
+                # noinspection PyUnresolvedReferences
+                if px[x, y][2] >= 230:
+                    x_sum += x
+                    y_sum += y
+                    total += 1
+
+        if total <= 10:
+            continue
+
+        x_range, y_range = big_x - small_x, big_y - small_y
+        avg_x, avg_y = x_sum / total, y_sum / total
+        normal_x, normal_y = (avg_x - small_x) / x_range, (avg_y - small_y) / y_range
+        coord_x, coord_y, current_time = 2 * normal_x - 1, -2 * normal_y + 1, time.time()
+
+        target_x, target_y = 0, 0
+        error_x, error_y = target_x - coord_x, target_y - coord_y
+        dt = current_time - lastTime
+        d_x, d_y = (error_x - last_x) / dt, (error_y - last_y) / dt
+        last_x, last_y, lastTime = error_x, error_y, current_time
+        int_x += error_x * dt
+        int_y += error_y * dt
+        int_x = clamp(int_x, -1, 1)
+        int_y = clamp(int_y, -1, 1)
+
+        force_x = (K_p * error_x + K_d * d_x + K_i * int_x) * (1 - force_smoothing) + last_force_x * force_smoothing
+        last_force_x = force_x
+        force_y = (K_p * error_y + K_d * d_y + K_i * int_y) * (1 - force_smoothing) + last_force_y * force_smoothing
+        last_force_y = force_y
+
+        print(f"Proportional: {error_x:.3f}, {error_y:.3f}", end='\t')
+        print(f"Derivative: {d_x:.3f}, {d_y:.3f}", end='\t')
+        print(f"Integral: {int_x:.3f}, {int_y:.3f}", end=' \t')
+        print(f"Force: {force_x:.3f}, {force_y:.3f}")
+        set_force(force_x, force_y)
